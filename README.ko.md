@@ -22,7 +22,9 @@ AI 글도 같은 틀, 같은 상투구, 같은 리듬으로 흘러갑니다.
 - `scripts/lint.py`는 탐지기입니다.
   한국어·영어 정규식 규칙 108개와 구조 검사 13개가 들어 있습니다.
   심각도는 세 단계로 나눕니다.
-  보고서에는 `--style ste`로 ASD-STE100 문장·문단 상한을 더 검사합니다.
+  보고서에는 `--style ste`로 ASD-STE100 규칙을 검사합니다(STE-1~10).
+  한 문장에 생각 하나, 빠진 말, 길이, 문단, 같은 대상에 같은 낱말, 명사 덩어리, 동사 형태, 쌍반점, 긴 나열, 어림말을 봅니다.
+  `--audit`는 모든 문장을 한 줄씩 보여 줍니다. 자동 검사가 못 보는 규칙을 눈으로 확인할 때 씁니다.
   한 줄에 문장이 둘 이상인 줄도 따로 알려 줍니다([FMT]).
 - `scripts/gate.py`는 원문과 고친 글을 비교합니다.
   다음을 잡습니다.
@@ -83,7 +85,8 @@ python scripts/lint.py post.txt --genre sns
 python scripts/gate.py before.txt after.txt
 python scripts/gate.py brief.txt draft.txt --mode write
 python scripts/linebreak.py draft.txt out.txt   # 한 줄에 한 문장(--target markdown | html)
-python scripts/lint.py report.txt --style ste   # 보고서: ASD-STE100 상한
+python scripts/lint.py report.txt --style ste   # 보고서: ASD-STE100 검사 STE-1~10
+python scripts/lint.py report.txt --audit       # 문장별 점검표
 ```
 
 ## 시험
@@ -103,6 +106,12 @@ python scripts/lint.py report.txt --style ste   # 보고서: ASD-STE100 상한
 
 ## 바뀐 점
 
+- 1.2.0: STE 모드가 길이만 세지 않고 검사할 수 있는 규칙을 모두 셉니다.
+  lint·gate를 통과한 보고서에 사실 두 개를 '~지만', '~고'로 이은 문장과 서술어 없는 그림 설명이 남았던 일이 계기입니다.
+  추가: STE-3 한 문장에 생각 하나(4.1, 5.2), STE-4 빠진 말(4.2), STE-5 긴 나열(4.3), STE-6 같은 대상에 같은 낱말(1.x, 6.2, 9.4), STE-7 명사 덩어리(2.1), STE-8 동사 형태(3.x), STE-9 쌍반점(8.1), STE-10 어림말.
+  `--audit` 문장별 점검표를 더했습니다.
+  STE 모드에서는 KO-E4·EN-L5를 세지 않습니다. 그 처방(짧은 문장 잇기)이 4.1과 부딪힙니다.
+  단위 시험 45개.
 - 1.1.1: 이어지는 줄을 들여쓴 번호 목록을 STE-2가 문단 하나로 세던 문제를 고쳤습니다.
 - 1.1.0: 한 줄에 한 문장(`linebreak.py`, gate `linebreak` 검사), ASD-STE100 보고서 형식(`--style ste`, SKILL.md 6-1절), 구조 패턴 검사 추가(경구식 두 문장 제목, 라벨 세 줄 요약, 아주 짧은 문장 연속: KO-S1·S2·E4, EN-S1·S2·L5).
   단위 시험 44개.

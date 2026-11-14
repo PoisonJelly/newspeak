@@ -25,7 +25,8 @@ Two scripts do the mechanical part.
 Both use only the Python standard library.
 
 - `scripts/lint.py` finds patterns: 108 regex rules and 13 structural checks across Korean and English, with three severity levels.
-  `--style ste` adds ASD-STE100 limits for reports.
+  `--style ste` adds ASD-STE100 checks for reports (STE-1 to STE-10): one idea per sentence, no omitted words, length, paragraphs, one word for one thing, noun clusters, verb forms, semicolons, inline lists, vague amounts.
+  `--audit` lists every sentence with its length and hits, so each one is read by eye.
   It also lists lines that hold more than one sentence ([FMT]).
 - `scripts/gate.py` compares the original with the rewrite.
   It flags lost or invented numbers and URLs, a changed hedge or obligation ("may" turned into "is"), dropped attributions, a writer's role made larger or smaller, new AI patterns added by the rewrite, and over-editing.
@@ -85,7 +86,8 @@ python scripts/lint.py post.txt --genre sns           # social posts: section em
 python scripts/gate.py before.txt after.txt           # check a rewrite
 python scripts/gate.py brief.txt draft.txt --mode write
 python scripts/linebreak.py draft.txt out.txt         # one sentence per line (--target markdown | html)
-python scripts/lint.py report.txt --style ste         # reports: ASD-STE100 sentence and paragraph limits
+python scripts/lint.py report.txt --style ste         # reports: ASD-STE100 checks STE-1..STE-10
+python scripts/lint.py report.txt --audit             # every sentence, one per row, with its STE hits
 ```
 
 Exit codes: `lint.py` returns 0 (no S1), 1 (S1 found) or 3 (error).
@@ -109,6 +111,12 @@ Known limits:
 
 ## Changes
 
+- 1.2.0: STE mode checks every rule it can, not only length.
+  A report passed lint and gate while sentences still joined two facts with 'but' or 'and', and tile captions had no verb.
+  New: STE-3 one idea per sentence (4.1, 5.2), STE-4 omitted words (4.2), STE-5 inline lists (4.3), STE-6 one word for one thing (1.x, 6.2, 9.4), STE-7 noun clusters (2.1), STE-8 verb forms (3.x), STE-9 semicolons (8.1), STE-10 vague amounts.
+  `--audit` prints a per-sentence checklist.
+  STE mode no longer reports KO-E4/EN-L5, whose fix (join short sentences) breaks rule 4.1.
+  45 unit tests.
 - 1.1.1: STE-2 no longer counts a numbered list with indented continuation lines as one paragraph.
 - 1.1.0: one sentence per line (`linebreak.py`, gate check `linebreak`); ASD-STE100 report format (`--style ste`, SKILL.md 6-1); structural checks for a two-sentence punchline title, a labelled three-line summary and runs of very short sentences (KO-S1, KO-S2, KO-E4, EN-S1, EN-S2, EN-L5).
   44 unit tests.

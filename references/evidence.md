@@ -64,5 +64,6 @@
 - Freeburg 2026 https://arxiv.org/abs/2603.27006
 - Graphite "AI Tells" https://graphite.io/five-percent/research/ai-tells
 - OpenAI https://openai.com/index/expanding-on-sycophancy/
+- v1.2 STE 규칙 번호는 Issue 9 배치를 따른다. 공식 PDF(https://www.asd-ste100.org/assets/files/ASD-STE100_ISSUE9.pdf)는 2026-11 확인 때 자동 접근이 막혀 있어 아래 요약으로 대조했다: Issue 9 작업 요약 https://github.com/sysmatt/ste-rules/blob/main/STE100-writing-rules.md (4.1 한 문장에 생각 하나, 4.2 말을 빼지 않음, 4.3 세로 목록, 4.4 문장 사이 접속어, 5.1~5.5 지시문, 6.1~6.6 설명문·문단, 8.1 쌍반점 금지, 8.3 괄호, 9.4 같은 낱말), 규칙 해설 https://clickhelp.com/clickhelp-technical-writing-blog/what-is-simplified-technical-english/ (짧은 문장도 생각이 둘이면 위반). 한국어 상한 0.8배(16·20어절)는 newspeak 추정치이며 공식 수치가 아니다.
 - ASD-STE100 Simplified Technical English, Issue 9 (2025-01, 규칙 53개): 지시문 20단어·설명문 25단어 이하, 문단 6문장 이하·주제 하나, 한 문장에 지시 하나, 능동태, 명사 덩어리 3단어 이하, 낱말 하나에 뜻 하나, 복잡한 내용은 세로 목록. 공식 문서는 https://asd-ste100.org 에서 무료로 받는다. 요약: https://en.wikipedia.org/wiki/Simplified_Technical_English , https://www.tcworld.info/news/asd-ste100-issue-9-setting-a-standard-for-technical-documentation
 - v1.1 구조 패턴(KO-S1·S2, KO-E4)은 연구가 아니라 실제 사용 보고에서 나왔다: lint 0건인 주간 보고서를 받는 사람이 '전형적인 AI 말투'로 읽었다(2026-11). 지난 셀프테스트 결과물 46개에 돌려 S2 오탐 0건을 확인했다.

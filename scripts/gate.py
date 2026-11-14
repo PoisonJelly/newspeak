@@ -21,7 +21,7 @@ Usage:
                  [--allow KEY=reason ...]                  # accept an explained warning (repeatable)
                  [--allow KEY[,KEY] --reason "why"]        # same reason for several keys
   python gate.py BRIEF AFTER --mode write
-  python gate.py ... --style ste       # reports/documents: ASD-STE100 limits (STE-1, STE-2) count as findings
+  python gate.py ... --style ste       # reports/documents: ASD-STE100 checks (STE-1..STE-10) count as findings
   python gate.py ... --no-linebreak    # skip the one-sentence-per-line check (on by default on the command line)
   allow keys: rewrite, delete, numbers, quotes, mood, deleted-ought, attribution, contribution, certainty, inject, s1, linebreak
 
@@ -486,7 +486,7 @@ def main(argv=None) -> int:
     ap.add_argument("--genre", choices=sorted(lint.GENRE_LEVELS), default=None,
                     help="sns = social posts and YouTube descriptions, chat = messenger (passed to lint)")
     ap.add_argument("--style", choices=["ste"], default=None,
-                    help="ste = reports and documents: ASD-STE100 sentence and paragraph limits (passed to lint)")
+                    help="ste = reports and documents: ASD-STE100 checks STE-1..STE-10 (passed to lint)")
     ap.add_argument("--no-linebreak", action="store_true",
                     help="skip the one-sentence-per-line check (default: on)")
     ap.add_argument("--json", action="store_true")

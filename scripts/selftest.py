@@ -583,6 +583,60 @@ def ste_style_limits():
 
 
 @case
+def ste_one_idea_and_full_rules():
+    """v1.2: the gaps a user found in a lint-clean report (two facts per sentence, telegraphic tile copy,
+    four verbs for one action) are caught, and plain one-idea sentences are not."""
+    def hits(text, rid, lang="auto"):
+        return lint.analyze(text, lang=lang, style="ste")["counts"].get(rid, 0)
+    # STE-3: two clauses in one sentence (4.1, 5.2)
+    for bad in ("구독자 1,000명까지 간 채널들과 비교해도 빠르게 출발했지만 이번 주에는 구독자가 9명만 늘었다.",
+                "이번 주 시청 시간의 86%가 롱폼에서 나왔고 롱폼 조회수도 3.9배가 됐다.",
+                "쇼츠는 공개 1~3일 만에 조회수 1,200회를 넘지만 쇼츠를 본 시청자가 구독자가 되는 경우는 적다.",
+                "조회수가 28% 늘어나는 동안 구독자는 9명 늘었다.",
+                "웃긴 장면을 앞에 넣고 자막을 크게 단다."):
+        assert hits(bad, "STE-3") == 1, bad
+    for good in ("쇼츠를 만들 때는 웃긴 장면을 첫 2~3초 안에 넣는다.",
+                 "지금은 4~5초 동안 깃발 설명 같은 준비 장면이 먼저 나온다.",
+                 "이 속도가 이어지면 다음 주에는 빨리 큰 채널의 선 아래로 내려간다.",
+                 "쇼츠를 본 시청자가 구독자가 되는 경우는 적다.",
+                 "그러나 이번 주에는 구독자가 9명만 늘었다.",
+                 "첫 30초는 길을 찾는 장면이다."):
+        assert hits(good, "STE-3") == 0, good
+    assert hits("Views grew 28%, but subscribers rose by only 9.", "STE-3", "en") == 1
+    assert hits("Red, green, and blue items are shown.", "STE-3", "en") == 0
+    # STE-4: omitted words (4.2); labels and a closing reference are fine
+    assert hits("롱폼은 첫 30초.", "STE-4") == 1 and hits("준비 장면이 많음.", "STE-4") == 1
+    for ok in ("데이터: YouTube Analytics(우리 채널).", "클릭률 기준: YouTube 고객센터.",
+               "보통 채널은 16개월 걸렸다(vidIQ 조사).", "11월 6일~12일 주간 보고서"):
+        assert hits(ok, "STE-4") == 0, ok
+    # STE-6: one word for one thing (1.x, 6.2, 9.4)
+    assert hits("시청자가 첫 30초에 나간다. 쇼츠에서는 4초에 떠난다.", "STE-6") == 1
+    assert hits("롱폼 2편을 관련 동영상으로 연결한다. 영상 한 편의 조회수는 1,345회다.", "STE-6") == 0
+    assert hits("Views grew this week. Subscribers rose by 9.", "STE-6", "en") == 1
+    # STE-8 verb forms, STE-9 semicolon, STE-10 vague amount, STE-5 inline list, STE-7 noun cluster
+    assert hits("구독자가 꾸준히 늘고 있다.", "STE-8") == 1 and hits("영상은 편집자에 의해 수정됐다.", "STE-8") == 1
+    assert hits("Subscribers are growing.", "STE-8", "en") == 1
+    assert hits("조회수가 늘었다; 구독자는 줄었다.", "STE-9") == 1
+    assert hits("시청 시간은 세 배 가까이 됐다.", "STE-10") == 1 and hits("시청 시간은 2.8배가 됐다.", "STE-10") == 0
+    assert hits("쇼츠는 부적, 돈까스, 가짜 무당, 콧구멍 4편이다.", "STE-5") == 1
+    assert hits("채널 구독 증가 속도 비교 그래프를 본다.", "STE-7") == 1
+    assert hits("깃발 설명, 운전, 장비 챙기기 같은 장면이다.", "STE-7") == 0
+    # severities: STE-3/4/6/8/9 block a write-mode PASS, STE-5/7/10 are candidates
+    res = lint.analyze("롱폼은 첫 30초. 조회수는 늘었고 시청 시간은 2.8배가 됐다.", style="ste")
+    sev = {f["id"]: f["sev"] for f in res["findings"]}
+    assert sev.get("STE-3") == "S2" and sev.get("STE-4") == "S2"
+    # KO-E4 (chopped rhythm) is not reported in STE mode, where one idea per sentence is the rule
+    chop = "조회수가 늘었다. 구독자가 줄었다. 쇼츠가 빠르다. 롱폼이 느리다. 썸네일이 좋다."
+    assert "KO-E4" in ids(lint.analyze(chop)) and "KO-E4" not in ids(lint.analyze(chop, style="ste"))
+    # the audit lists every sentence, flagged or not
+    rep = lint.format_report(lint.analyze("롱폼은 첫 30초. 시청자는 첫 30초에 나간다.", style="ste"), audit=True)
+    assert "STE audit | 2 sentences" in rep and " ok |" in rep
+    # gate in write mode does not pass a text with an STE S2 finding
+    g = gate.compare_write("롱폼 첫 30초 63%, 2분부터 덜 나감.", "롱폼은 첫 30초에 63%가 나갔지만 2분부터는 시청자가 덜 나간다.", style="ste")
+    assert g["verdict"] >= 1 and "STE-3" in str(g), g
+
+
+@case
 def docs_match_lint_levels():
     import re as _re
     root = os.path.dirname(HERE)

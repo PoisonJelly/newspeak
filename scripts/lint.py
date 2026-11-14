@@ -174,7 +174,7 @@ KO_RULES = [
     ("KO-M6", "ko", "일반화 주어 '우리는 보통/사람들은 흔히'", r"(?:우리는|사람들은|누구나) (?:보통|흔히|대개|종종|대부분) ", {"S2": 2, "S3": 1}, True,
      "대화체면 상대에게 건네는 구어로: '이럴 때 보통 내가 뭘 잘못했나 싶잖아'. 글이면 구체 주어로.", {}),
     # --- K. chatbot residue (KO) ---
-    ("KO-K1", "ko", "아첨·칭찬", r"좋은 질문|핵심을 (?:찔렀|짚었|찌르)|정곡을 찔|예리(?:하신|한|하게) (?:질문|지적|관찰|보셨)|날카로운 (?:질문|지적|통찰)|정말 (?:훌륭|대단|멋진)|완전 잘하고|상위 \d+ ?%|틀린 (?:거|것|말) 하나도 없|혼자가 아니(?:에요|야|다)|감정은 (?:정당|당연)|(?:느끼는|하는) (?:너는|네가|당신은|당신이) (?:전혀 |하나도 |절대 )?이상하지 않|(?:고민하는|물어보는|털어놓는|걱정하는) (?:것|거)만 봐도|(?:충분히|이미) (?:좋은|잘하고 있는|훌륭한) (?:친구|사람|엄마|아빠|부모|동료|리더)", {"S1": 1}, False,
+    ("KO-K1", "ko", "아첨·칭찬", r"좋은 질문|핵심을 (?:찔렀|짚었|찌르)|정곡을 찔|예리(?:하신|한|하게) (?:질문|지적|관찰|보셨)|날카로운 (?:질문|지적|통찰)|정말 (?:훌륭|대단|멋진)|완전 잘하고|(?:당신|너|네가|님|여러분|사용자)[^.\n]{0,20}상위 \d+ ?%|상위 \d+ ?%(?:예요|이에요|입니다|야|이야|에 (?:들어요|속해요|해당해요|들어))|틀린 (?:거|것|말) 하나도 없|혼자가 아니(?:에요|야|다)|감정은 (?:정당|당연)|(?:느끼는|하는) (?:너는|네가|당신은|당신이) (?:전혀 |하나도 |절대 )?이상하지 않|(?:고민하는|물어보는|털어놓는|걱정하는) (?:것|거)만 봐도|(?:충분히|이미) (?:좋은|잘하고 있는|훌륭한) (?:친구|사람|엄마|아빠|부모|동료|리더)", {"S1": 1}, False,
      "지운다. 평가는 내용으로 대신한다.", {}),
     ("KO-K2", "ko", "후속 제안·맺음 인사", r"(?:같이 |내가 )?(?:써|정리해|만들어|짜|찾아) ?줄까\?|원하시면|원하면 [^.\n]{0,20}(?:줄게|드릴게)|해 ?드릴까요|도와드릴까요|더 궁금한 (?:점|것)|도움이 (?:되셨|되었|됐)(?:길|으면)|언제든(?:지)? (?:물어|말씀|편하게|연락)|필요하시면 (?:말씀|알려)|궁금하신 점이 있으시면", {"S1": 1}, False,
      "지운다. 문서는 내용에서 끝낸다.", {}),
@@ -540,55 +540,311 @@ def format_check(doc: "Doc", max_items: int) -> dict:
 
 
 # ---------- ASD-STE100 report style (opt-in: --style ste) ----------
-# Issue 9 (2025): procedural sentences <= 20 words, descriptive <= 25, paragraphs <= 6 sentences.
-# Korean has no official STE; a Korean eojeol carries more than an English word, so 0.8x: 16 / 20 eojeol.
+# Issue 9 (2025-01, 53 rules). Rule numbers follow the Issue 9 layout (sources: references/evidence.md).
+# Automated (lint --style ste):
+#   STE-1  sentence length: 5.1 procedural <= 20 words, 6.3 descriptive <= 25
+#   STE-2  paragraph <= 6 sentences (6.4-6.6)
+#   STE-3  one idea per sentence (4.1), one instruction per sentence (5.2): two clauses in one sentence
+#   STE-4  do not omit words (4.2): a sentence with no predicate ("롱폼은 첫 30초.") or a 개조식 ending (~함/~임/~음)
+#   STE-5  vertical lists (4.3): four or more items run inside one sentence (S3)
+#   STE-6  one word for one thing (1.x, 6.2, 9.4): two words for one concept in one text
+#   STE-7  noun clusters of three words at most (2.1) (S3: no part-of-speech tagger)
+#   STE-8  approved verb forms (3.x): progressive, perfect, passive with an agent, double passive, nominalised verbs
+#   STE-9  no semicolons (8.1)
+#   STE-10 an approximate amount or an intensifier (S3; newspeak rule: write the exact number you have)
+# Not automated, checked by eye with --audit: general to specific (6.1), one topic per paragraph (6.5),
+# condition before the command (5.4), parentheses only for references, abbreviations and short explanations (8.3),
+# warnings before the step (7.x), clear pronoun reference, imperative or 한다체 instructions (5.3).
+# Korean has no official STE. A Korean eojeol carries more than an English word, so the limits are 0.8x
+# (16 / 20 eojeol). The ratio is newspeak's estimate, not a published figure.
 STE_LIMITS = {"en": (20, 25), "ko": (16, 20)}
 _LIST_MARK = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s+")
+_TOK_EDGE = re.compile(r"^[\"'“‘(\[<*]+|[\"'”’)\]>*.,!?…:;]+$")
+
+# STE-3 (Korean): connective endings that join two clauses
+_KO_CONTRAST = re.compile(r"[가-힣](?:지만|는데|은데|인데|던데)$")
+_KO_LINK = re.compile(r"[가-힣](?:고|며|면서|어서|아서|해서|여서|라서|워서|으니|니까|거나|으나|더니)$")
+_KO_NOT_LINK = re.compile(r"(?:다고|라고|자고|냐고|하고|최고|광고|참고|경고|사고|보고|재고|창고|원고|신고|공고)$")
+_KO_ADV_I = {"많이", "가까이", "같이", "깊이", "높이", "굳이", "없이", "일찍이", "깨끗이", "틈틈이", "일일이",
+             "곰곰이", "낱낱이", "겹겹이"}
+_KO_NOUN_END = {"추가", "평가", "대가", "단가", "물가", "주가", "증가", "국가", "작가", "휴가", "전문가", "원가",
+                "정가", "차이", "나이", "길이", "사이", "아이", "넓이", "놀이", "먹이", "풀이", "정도", "속도",
+                "온도", "밀도", "각도", "빈도", "제도", "태도", "지도", "강도", "농도", "용도", "한도", "고도",
+                "습도", "시도", "의도"}
+_KO_ADNOM_NEUN = set("하되있없나오가보받걷찾남들쓰알기지르키치우추리드시이")
+_KO_ADNOM_EUN = set("받찾남읽웃먹잡닫앉많높작좋같짧넓깊적늦낮밝맑굵얇젊늙옅짙붉")
+_EN_JUNC = re.compile(
+    r"(?i:,\s+(?:but|yet|so|while|whereas|although|though)\s+)\w+"
+    r"|;\s*\w+"
+    r"|,\s+and\s+(?:(?i:it|this|that|these|those|they|we|he|she|you|i|there|the|a|an|our|its|their|his|her)|[A-Z][a-z]+|\d[\d,.]*%?)"
+    r"(?:\s+\w+){0,3}?\s+(?:is|are|was|were|has|have|had|will|can|could|did|does|do|\w+ed|\w+s)\b")
+
+
+def _tok(t: str) -> str:
+    return _TOK_EDGE.sub("", t)
+
+
+def _final_n(ch: str) -> bool:
+    code = ord(ch) - 0xAC00
+    return 0 <= code < 11172 and code % 28 == 4
+
+
+def _ko_clause_mark(tok: str) -> bool:
+    """A subject, topic or object: a new clause has started."""
+    t = _tok(tok)
+    if len(t) < 2 or not HANGUL.match(t[-1]) or t in _KO_ADV_I or t in _KO_NOUN_END:
+        return False
+    last, prev = t[-1], t[-2]
+    if last in "이가을를도":
+        return True
+    if last == "는":
+        return prev not in _KO_ADNOM_NEUN
+    if last == "은":
+        return prev not in _KO_ADNOM_EUN
+    return False
+
+
+def _ko_junctions(s: str) -> list:
+    toks = s.split()
+    found = []
+    for i in range(1, len(toks) - 1):
+        t = _tok(toks[i])
+        if not t:
+            continue
+        rest = toks[i + 1:]
+        if _KO_CONTRAST.search(t):
+            found.append(t)
+        elif t in ("동안", "반면", "반면에", "동시에"):
+            p = _tok(toks[i - 1])
+            adnominal = p.endswith(("는", "던")) or (t.startswith("반면") and p and _final_n(p[-1]))
+            if adnominal and any(_ko_clause_mark(x) for x in rest):
+                found.append(f"{p} {t}")
+        elif _KO_LINK.search(t) and not _KO_NOT_LINK.search(t) and any(_ko_clause_mark(x) for x in rest):
+            found.append(t)
+    return found
+
+
+# STE-4: a Korean sentence must end in a predicate
+_KO_PRED_END = set("다요까죠네자라소오니지냐군걸데나")
+_KO_NOMINAL_END = set("함임음됨짐")
+
+# STE-6: one concept, one word (members are different words, not inflections)
+_STE_SYNONYMS = [
+    ("ko", "시청자가 나감", {"나가다": r"(?<!져)나[가간갔갈]", "떠나다": r"떠[나난났날]", "빠져나가다": r"빠져나",
+                          "이탈": r"이탈", "넘기다": r"(?<![회명를을]\s)넘[기긴겼길]", "스킵": r"스킵"}),
+    ("ko", "늘어남", {"늘다": r"늘(?:었|어|고|면|지|기|다|린|려|리)", "증가": r"증가", "상승": r"상승"}),
+    ("ko", "줄어듦", {"줄다": r"줄(?:었|어|고|면|지|다|인|여)", "감소": r"감소", "하락": r"하락",
+                    "떨어지다": r"떨어[지져졌진]"}),
+    ("ko", "조회수", {"조회수": r"조회", "뷰": r"(?<![가-힣])뷰(?![가-힣])", "재생 수": r"재생\s?수"}),
+    ("ko", "시청자", {"시청자": r"시청자", "관객": r"관객", "유저": r"유저", "이용자": r"이용자",
+                   "사용자": r"사용자", "사람": r"사람"}),
+    ("ko", "영상", {"영상": r"(?<!동)영상", "동영상": r"(?<!관련 )동영상", "비디오": r"비디오",
+                  "콘텐츠": r"[콘컨]텐츠"}),
+    ("en", "increase", {"increase": r"\bincreas\w*", "grow": r"\bgr[eo]w\w*", "rise": r"\b(?:rise|rises|rose|risen|rising)\b",
+                        "go up": r"\b(?:go|goes|went|gone) up\b"}),
+    ("en", "decrease", {"decrease": r"\bdecreas\w*", "drop": r"\bdrop(?:s|ped|ping)?\b(?! off)", "fall": r"\b(?:fall|falls|fell|fallen)\b",
+                        "decline": r"\bdeclin\w*"}),
+    ("en", "leave", {"leave": r"\b(?:leave|leaves|left|leaving)\b", "drop off": r"\bdrop(?:s|ped)? off\b",
+                     "exit": r"\bexit\w*", "abandon": r"\babandon\w*", "bounce": r"\bbounc\w*", "quit": r"\bquit(?:s|ting)?\b"}),
+    ("en", "viewer", {"viewer": r"\bviewers?\b", "watcher": r"\bwatchers?\b", "audience": r"\baudiences?\b", "user": r"\busers?\b"}),
+    ("en", "video", {"video": r"\bvideos?\b", "clip": r"\bclips?\b"}),
+]
+
+# STE-7: noun clusters (Korean heuristic)
+_KO_PARTICLE_END = set("은는이가을를의에도로과와만고며면게지다요까네서")
+_KO_NOT_NOUN = {"가장", "아직", "먼저", "모두", "거의", "다시", "바로", "특히", "매우", "더", "덜", "잘", "또", "곧",
+                "꼭", "이미", "아주", "너무", "조금", "약", "총", "각", "첫", "새", "이번", "지난", "다음", "이", "그",
+                "저", "한", "두", "세", "네", "몇", "모든", "여러", "다른", "같은", "및", "또는", "그리고", "등",
+                "비교적", "훨씬", "꽤", "다소", "늘", "왜", "어떻게", "어디서", "언제", "무엇", "얼마나",
+                "가운데", "중", "사이", "동안", "때", "뒤", "앞", "안", "밖", "위", "아래", "전", "후", "만큼",
+                "빨리", "천천히", "처음", "함께", "같이", "많이", "조금씩", "계속"}
+
+# STE-8: verb forms
+_STE_VERB = {
+    "ko": [("진행형 '~고 있다'", r"[가-힣]고\s+있(?:다|는|었|어|고|습|음)"),
+           ("완료·지속 '~어 왔다'", r"[가-힣](?:어|아|해|여|와|워)\s*(?:왔|오고\s+있|온다)"),
+           ("이중 피동 '되어지다'", r"되어[지진져졌]|돼[진져졌]"),
+           ("피동 행위자 '~에 의해'", r"에\s*의(?:해|하여)"),
+           ("명사화 '~함으로써·~하는 것이다'", r"[가-힣]함으로써|[가-힣](?:하는|한)\s+것이다")],
+    "en": [("progressive", r"\b(?:am|is|are|was|were|be|been|being)\s+\w+ing\b"),
+           ("perfect", r"\b(?:has|have|had)\s+(?:been\s+)?\w+(?:ed|en|wn|ne)\b"),
+           ("passive with an agent", r"\b(?:is|are|was|were|be|been)\s+\w+(?:ed|en)\s+by\b")],
+}
+
+# STE-10: approximate amounts and intensifiers
+_STE_VAGUE = {
+    "ko": r"\d[\d,.]*\s*(?:배|명|회|%|시간|초|분|일|주|개월|년|개|편)?\s*(?:쯤|가까이|정도|남짓|안팎|내외|가량)"
+          r"|(?:한|두|세|네|다섯|여섯|일곱|여덟|아홉|열)\s*(?:배|명|번|편|시간)\s*(?:쯤|가까이|정도|남짓|안팎)"
+          r"|(?:약|거의|대략)\s*\d"
+          r"|(?<![가-힣])(?:훨씬|매우|상당히|굉장히|비교적|꽤|다소|아주|너무)(?![가-힣])",
+    "en": r"\b(?:about|approximately|roughly|nearly|almost|around)\s+\d|\b(?:very|really|quite|fairly|relatively|significantly|extremely)\b",
+}
+
+
+def _ste_scan(doc: "Doc") -> list:
+    """One row per sentence in body text: lang, line, text, item flag, block, word count, cap and the STE ids it hits."""
+    rows = []
+    for lang, body in (("ko", doc.ko_text), ("en", doc.en_text)):
+        proc_max, desc_max = STE_LIMITS[lang]
+        block = 0
+        for ln, line in enumerate(body.split("\n"), 1):
+            if not line.strip():
+                block += 1
+                continue
+            if line.lstrip().startswith(("#", "|")):
+                continue
+            is_item = bool(_LIST_MARK.match(line))
+            label = bool(re.match(r"^\s*(?:[-*•]\s*)?[^:：.!?]{1,24}[:：]\s", line))
+            for s in split_sentences(line, lang):
+                words = len([w for w in s.split() if re.search(r"\w", w)])
+                cap = proc_max if is_item else desc_max
+                hits = {}
+                if words > cap:
+                    hits["STE-1"] = f"{words}/{cap}"
+                if lang == "ko":
+                    j = _ko_junctions(s)
+                    if j:
+                        hits["STE-3"] = ", ".join(j)
+                    # a closing (reference) is not the predicate: "...걸렸다(vidIQ 조사)."
+                    core = re.sub(r"\s*\([^()]*\)(?=[.!?]['\"”’]*$)", "", s.strip())
+                    last = _tok(core.split()[-1]) if core.split() else ""
+                    if not label and re.search(r"[.!?]['\"”’)\]]*$", s.strip()) and last and HANGUL.match(last[-1]):
+                        if last[-1] in _KO_NOMINAL_END and len(last) >= 2:
+                            hits["STE-4"] = f"개조식 '{last}'"
+                        elif last[-1] not in _KO_PRED_END:
+                            hits["STE-4"] = f"서술어 없음 '{last}'"
+                    if len(re.findall(r",\s|·|、", re.sub(r"\d,\d", "", s))) >= 3:
+                        hits["STE-5"] = "항목 4개+"
+                else:
+                    m = _EN_JUNC.search(s)
+                    if m:
+                        hits["STE-3"] = m.group(0)[:30]
+                    if len(re.findall(r",\s", s)) >= 3 and re.search(r"\b(?:and|or)\b", s):
+                        hits["STE-5"] = "4+ items"
+                for name, pat in _STE_VERB[lang]:
+                    if re.search(pat, s):
+                        hits["STE-8"] = name
+                        break
+                if ";" in s:
+                    hits["STE-9"] = ";"
+                v = re.search(_STE_VAGUE[lang], s)
+                if v:
+                    hits["STE-10"] = v.group(0).strip()
+                rows.append({"lang": lang, "line": ln, "text": s, "item": is_item, "block": (lang, block),
+                             "words": words, "cap": cap, "hits": hits})
+    return rows
+
+
+def _ko_noun_clusters(doc: "Doc") -> list:
+    out = []
+    for ln, line in enumerate(doc.ko_text.split("\n"), 1):
+        if not line.strip() or line.lstrip().startswith(("#", "|")):
+            continue
+        run = []
+        for tok in line.split():
+            t = _tok(tok)
+            bare = bool(t) and bool(re.fullmatch(r"[가-힣]{1,6}", t)) and t not in _KO_NOT_NOUN \
+                and (t[-1] not in _KO_PARTICLE_END or t in _KO_NOUN_END) and not t.endswith(("는", "던", "된", "한")) \
+                and not (len(t) == 1 and _final_n(t))  # one-syllable adnominals: 큰, 본, 간, 온
+            if bare:
+                run.append(t)
+                if re.search(r"[,·、:：]$", tok):  # a comma list or a label is not a noun cluster
+                    if len(run) >= 4:
+                        out.append((ln, " ".join(run)))
+                    run = []
+                continue
+            if run and t and re.fullmatch(r"[가-힣]{2,8}", t) and t not in _KO_NOT_NOUN:
+                run.append(t)  # the head noun that carries the particle
+            if len(run) >= 4:
+                out.append((ln, " ".join(run)))
+            run = []
+        if len(run) >= 4:
+            out.append((ln, " ".join(run)))
+    return out
+
+
+_STE_NAMES = {
+    "STE-1": ("S2", "STE 문장 길이 초과 / sentence over the STE limit (5.1, 6.3)",
+              "문장을 나눈다. 설명문 20어절(영어 25단어), 목록·지시문 16어절(영어 20단어) 이하. 나눌 때 사실 하나에 문장 하나."),
+    "STE-2": ("S2", "STE 문단 6문장 초과 / paragraph over 6 sentences (6.4-6.6)",
+              "문단 하나에 주제 하나, 6문장 이하. 첫 문장에 핵심을 쓴다. 항목이 3개 넘으면 세로 목록으로 바꾼다."),
+    "STE-3": ("S2", "한 문장에 생각 둘 이상 / more than one idea in a sentence (4.1, 5.2)",
+              "주어가 다른 두 절을 연결어미(~지만, ~는데, ~고, ~며, ~어서, ~는 동안)로 잇지 않는다. 사실마다 문장을 나눈다. "
+              "관계는 문장 사이 접속어(그러나, 그래서, 그 결과)로 보인다(4.4). / Split it: one idea per sentence. "
+              "Show the relation with a connecting word between sentences."),
+    "STE-4": ("S2", "빠진 말: 서술어 없는 문장·개조식 / omitted words (4.2)",
+              "주어와 서술어를 갖춘 문장으로 쓴다: '롱폼은 첫 30초.' → '롱폼은 첫 30초에 가장 많이 나간다.' "
+              "~함·~임·~음으로 끝내지 않는다. 제목과 '라벨: 값' 줄은 예외."),
+    "STE-5": ("S3", "한 문장에 항목 4개+ / long inline list (4.3)",
+              "항목이 4개 넘으면 세로 목록으로 쓴다. 이름 몇 개를 드는 예시라면 괄호 설명(8.3)이나 '등'으로 줄인다."),
+    "STE-6": ("S2", "같은 대상에 다른 낱말 / two words for one thing (1.x, 6.2, 9.4)",
+              "한 문서 안에서 같은 뜻은 한 낱말로 통일한다. 고유 기능명(관련 동영상 등)은 예외."),
+    "STE-7": ("S3", "명사 덩어리 4개+ / noun cluster over three words (2.1)",
+              "조사와 동사로 푼다: '채널 구독 증가 속도 비교' → '구독자가 늘어나는 속도를 비교한다'. 자동 판정이 거칠다. 눈으로 확인한다."),
+    "STE-8": ("S2", "승인되지 않은 동사 형태 / verb form outside STE (3.x)",
+              "단순 현재·과거·미래로 쓴다. 진행형·완료형·'~에 의해'·'되어지다'·명사화를 쓰지 않는다. 행위자를 주어로 쓴다."),
+    "STE-9": ("S2", "쌍반점 / semicolon (8.1)", "쌍반점을 쓰지 않는다. 문장을 나눈다."),
+    "STE-10": ("S3", "어림말·강조어 / approximate amount or intensifier",
+               "정확한 값이 있으면 그 값을 쓴다('세 배 가까이' → '2.8배'). 값이 없을 때만 '약'을 쓴다. "
+               "'훨씬', '매우', '비교적'은 지우고 수치로 보인다. (newspeak 규칙)"),
+}
 
 
 def ste_rules(doc: "Doc", results: dict, counts: dict, max_items: int):
-    long_s, ex = 0, []
-    para_over, pex = 0, []
+    rows = _ste_scan(doc)
+    found = {k: [] for k in _STE_NAMES}
+    for r in rows:
+        for rid, why in r["hits"].items():
+            found[rid].append({"line": r["line"], "match": why, "text": snippet(r["text"])})
+    # STE-2: paragraphs (blocks) over six sentences, lists excepted
     for lang, body in (("ko", doc.ko_text), ("en", doc.en_text)):
-        proc_max, desc_max = STE_LIMITS[lang]
-        for block in re.split(r"\n\s*\n", body):
-            lines = [l for l in block.split("\n") if l.strip()]
-            if not lines:
-                continue
-            # a list (items plus indented continuation lines, maybe under a short heading) is not a paragraph
-            body_lines = [l for l in lines if not l.lstrip().startswith(("#", "|"))]
+        blocks, cur = [], []
+        for ln, line in enumerate(body.split("\n"), 1):
+            if line.strip():
+                cur.append((ln, line))
+            elif cur:
+                blocks.append(cur)
+                cur = []
+        if cur:
+            blocks.append(cur)
+        for blk in blocks:
+            lines = [l for _, l in blk if not l.lstrip().startswith(("#", "|"))]
+            body_lines = list(lines)
             if body_lines and not _LIST_MARK.match(body_lines[0]) and not _SENT_END.search(body_lines[0].strip()) \
                     and len(body_lines[0].strip()) <= 30:
                 body_lines = body_lines[1:]
             listy = bool(body_lines) and any(_LIST_MARK.match(l) for l in body_lines) and \
                 all(_LIST_MARK.match(l) or l[:1] in (" ", "\t") for l in body_lines)
-            n_sent = 0
-            for line in lines:
-                if line.lstrip().startswith(("#", "|")):
-                    continue
-                is_item = bool(_LIST_MARK.match(line))
-                for s in split_sentences(line, lang):
-                    n_sent += 1
-                    words = len([w for w in s.split() if re.search(r"\w", w)])
-                    cap = proc_max if is_item else desc_max
-                    if words > cap:
-                        long_s += 1
-                        if len(ex) < max_items:
-                            ex.append({"line": 0, "match": f"{words}/{cap}", "text": snippet(s)})
+            n_sent = sum(len(split_sentences(l, lang)) for l in lines)
             if not listy and n_sent > 6:
-                para_over += 1
-                if len(pex) < max_items:
-                    pex.append({"line": 0, "match": f"{n_sent}문장", "text": snippet(block.replace(chr(10), " "))})
-    counts["STE-1"], counts["STE-2"] = long_s, para_over
-    if long_s:
-        results["STE-1"] = {"id": "STE-1", "sev": "S2", "name": "STE 문장 길이 초과 / sentence over the STE limit", "count": long_s,
-                            "hint": "한 문장에 정보 하나. 설명문 20어절(영어 25단어), 목록·지시문 16어절(영어 20단어) 이하로 나눈다. "
-                                    "나눈 뒤 짧은 문장만 이어지지 않게 관련 문장은 연결어미로 잇는다.",
-                            "items": ex}
-    if para_over:
-        results["STE-2"] = {"id": "STE-2", "sev": "S2", "name": "STE 문단 6문장 초과 / paragraph over 6 sentences", "count": para_over,
-                            "hint": "문단 하나에 주제 하나, 6문장 이하. 첫 문장에 핵심을 쓴다. 항목이 3개 넘으면 세로 목록으로 바꾼다.",
-                            "items": pex}
+                found["STE-2"].append({"line": blk[0][0], "match": f"{n_sent}문장",
+                                       "text": snippet(" ".join(l.strip() for l in lines))})
+    # STE-6: synonyms across the whole text
+    for lang, label, members in _STE_SYNONYMS:
+        body = doc.ko_text if lang == "ko" else doc.en_text
+        used = {w: len(re.findall(p, body, re.I if lang == "en" else 0)) for w, p in members.items()}
+        used = {w: n for w, n in used.items() if n}
+        if len(used) >= 2:
+            found["STE-6"].append({"line": 0, "match": label, "text": ", ".join(f"{w} {n}" for w, n in used.items())})
+    for ln, run in _ko_noun_clusters(doc):
+        found["STE-7"].append({"line": ln, "match": f"{len(run.split())}개", "text": run})
+    for rid, items in found.items():
+        counts[rid] = len(items)
+        if items:
+            sev, name, hint = _STE_NAMES[rid]
+            results[rid] = {"id": rid, "sev": sev, "name": name, "count": len(items), "hint": hint, "items": items[:max_items]}
+    return rows
+
+
+def format_audit(rows: list) -> str:
+    """Every sentence with its length and STE hits, so each one is read, not just the flagged ones."""
+    out = [f"STE audit | {len(rows)} sentences | rules checked by eye for every row: 4.1 one idea, 6.1 general to specific, "
+           "6.5 one topic per paragraph, 8.3 parentheses, pronoun reference"]
+    for i, r in enumerate(rows, 1):
+        flags = " ".join(f"{k}({v})" for k, v in r["hits"].items()) or "ok"
+        kind = "item" if r["item"] else "desc"
+        out.append(f"{i:>3} L{r['line']:<4} {kind} {r['words']:>2}/{r['cap']:<2} {flags} | {snippet(r['text'], 0, 90)}")
+    return "\n".join(out)
 
 
 # ---------- structural AI tells (2026-11 user report: lint passed, the page still read as AI) ----------
@@ -605,7 +861,7 @@ def _is_sentence(s: str) -> bool:
     return len(s) >= 8 and bool(_SENT_END.search(s))
 
 
-def structure_rules(doc: "Doc", results: dict, counts: dict, max_items: int):
+def structure_rules(doc: "Doc", results: dict, counts: dict, max_items: int, style: str | None = None):
     lines = doc.lines
     nonempty = [i for i, l in enumerate(lines) if l.strip()]
     first = set(nonempty[:12])
@@ -688,8 +944,9 @@ def structure_rules(doc: "Doc", results: dict, counts: dict, max_items: int):
                                      "용량·무게 같은 사양 목록(값만 있는 줄)은 둔다.")
                                     if lang == "ko" else
                                     "Drop the labels and write one connected paragraph. If they are actions, use a numbered list with one action per item. Spec lists (Capacity, Weight) are fine."}
-    # KO-E4 / EN-L5: four or more very short sentences in a row (chopped rhythm)
-    for rid, lang, body, short in (("KO-E4", "ko", doc.ko_text, 15), ("EN-L5", "en", doc.en_text, 6)):
+    # KO-E4 / EN-L5: four or more very short sentences in a row (chopped rhythm).
+    # Not under --style ste: STE 4.1 wants one idea per sentence, and joining two facts to fix the rhythm breaks it.
+    for rid, lang, body, short in () if style == "ste" else (("KO-E4", "ko", doc.ko_text, 15), ("EN-L5", "en", doc.en_text, 6)):
         best_runs, ex = [], []
         for block in re.split(r"\n\s*\n", body):
             run_n, run_ex = 0, ""
@@ -722,7 +979,7 @@ def structure_rules(doc: "Doc", results: dict, counts: dict, max_items: int):
                             "items": [{"line": 0, "match": f"{n}연속" if lang == "ko" else f"{n} in a row", "text": snippet(t)}
                                       for n, t in list(zip(best_runs, ex))[:max_items]],
                             "name": "아주 짧은 문장 4개+ 연속(끊어 쓴 리듬)" if lang == "ko" else "four or more very short sentences in a row",
-                            "hint": "관련된 이웃 문장을 연결어미(~고, ~는데, ~지만, ~어서)로 잇는다. 내용은 더하지 않는다."
+                            "hint": "관련된 이웃 문장을 연결어미(~고, ~는데, ~지만, ~어서)로 잇는다. 내용은 더하지 않는다. 보고서(--style ste)에는 쓰지 않는다: 사실 하나에 문장 하나."
                                     if lang == "ko" else "Join related neighbours with and/but/so or a relative clause. Add no content."}
 
 
@@ -961,21 +1218,23 @@ def analyze(text: str, lang: str = "auto", skip_quotes: bool = False, max_items:
     run_regex_rules(doc, _with_genre(EN_RULES, genre), results, counts, max_items)
     run_regex_rules(doc, _with_genre(ANY_RULES, genre), results, counts, max_items)
     run_function_rules(doc, results, counts, max_items)
-    structure_rules(doc, results, counts, max_items)
-    if style == "ste":
-        ste_rules(doc, results, counts, max_items)
+    structure_rules(doc, results, counts, max_items, style)
+    ste_rows = ste_rules(doc, results, counts, max_items) if style == "ste" else None
     findings = sorted(results.values(), key=lambda r: (SEV_RANK[r["sev"]], r["id"]))
     tally = {s: sum(1 for f in findings if f["sev"] == s) for s in ("S1", "S2", "S3")}
-    return {
+    res = {
         "stats": {"ko_chars": doc.ko_chars, "en_words": doc.en_words, "chars": doc.total_chars},
         "tally": tally,
         "findings": findings,
         "counts": counts,
         "format": format_check(doc, max_items),
     }
+    if ste_rows is not None:
+        res["ste_audit"] = ste_rows
+    return res
 
 
-def format_report(res: dict) -> str:
+def format_report(res: dict, audit: bool = False) -> str:
     st, t = res["stats"], res["tally"]
     out = [f"newspeak lint | ko {st['ko_chars']} hangul syllables, en {st['en_words']} words | S1 {t['S1']} / S2 {t['S2']} / S3 {t['S3']}"]
     if not res["findings"]:
@@ -995,6 +1254,8 @@ def format_report(res: dict) -> str:
         out.append(f"[FMT] {fm['id']} {fm['name']} x{fm['count']} lines: {fm['hint']}")
         for it in fm["items"]:
             out.append(f"    L{it['line']}: {it['text']}")
+    if audit and res.get("ste_audit") is not None:
+        out.append(format_audit(res["ste_audit"]))
     return "\n".join(out)
 
 
@@ -1017,16 +1278,18 @@ def main(argv=None) -> int:
     ap.add_argument("--genre", choices=sorted(GENRE_LEVELS), default=None,
                     help="sns = social posts and YouTube descriptions, chat = messenger; relaxes emoji/CTA counts")
     ap.add_argument("--style", choices=["ste"], default=None,
-                    help="ste = reports and documents: ASD-STE100 sentence and paragraph limits (STE-1, STE-2)")
+                    help="ste = reports and documents: ASD-STE100 checks STE-1..STE-10")
+    ap.add_argument("--audit", action="store_true", help="list every sentence with its length and STE hits (implies --style ste)")
     try:
         a = ap.parse_args(argv)
-        res = analyze(read_text(a.file), a.lang, a.skip_quotes, max(0, a.max_items), a.genre, a.style)
+        style = "ste" if a.audit else a.style
+        res = analyze(read_text(a.file), a.lang, a.skip_quotes, max(0, a.max_items), a.genre, style)
     except SystemExit as e:
         return 3 if e.code not in (0, None) else 0
     except Exception as e:  # report, never crash with a traceback
         print(f"lint error: {type(e).__name__}: {e}", file=sys.stderr)
         return 3
-    print(json.dumps(res, ensure_ascii=False, indent=1) if a.json else format_report(res))
+    print(json.dumps(res, ensure_ascii=False, indent=1) if a.json else format_report(res, a.audit))
     return 1 if res["tally"]["S1"] else 0
 
 
