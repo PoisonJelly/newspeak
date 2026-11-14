@@ -21,7 +21,9 @@ Usage:
                  [--allow KEY=reason ...]                  # accept an explained warning (repeatable)
                  [--allow KEY[,KEY] --reason "why"]        # same reason for several keys
   python gate.py BRIEF AFTER --mode write
-  allow keys: rewrite, delete, numbers, quotes, mood, deleted-ought, attribution, contribution, certainty, inject, s1
+  python gate.py ... --style ste       # reports/documents: ASD-STE100 limits (STE-1, STE-2) count as findings
+  python gate.py ... --no-linebreak    # skip the one-sentence-per-line check (on by default on the command line)
+  allow keys: rewrite, delete, numbers, quotes, mood, deleted-ought, attribution, contribution, certainty, inject, s1, linebreak
 
 Exit codes: 0 pass | 1 warn (fix, or --allow with a reason) | 2 reject (roll back) | 3 error
 """
@@ -269,8 +271,19 @@ def grade(rates: dict, after_tally: dict, verdict: int) -> str:
     return "C"
 
 
+def linebreak_warn(after: str):
+    hits = lint.inline_sentence_ends(after)
+    if not hits:
+        return None
+    lines = sorted({li for li, _ in hits})
+    first = after.splitlines()[lines[0]].strip()[:60]
+    return ("linebreak", f"{len(lines)} line(s) hold more than one sentence (first: \"{first}\"). Break the line after each "
+                         "sentence-ending period (python scripts/linebreak.py IN OUT). Keep a line whole only where the format "
+                         "forbids a break (subtitle line, table cell, title, one-line field) and say so: --allow linebreak=reason")
+
+
 def compare(before: str, after: str, lang: str = "auto", allow=None, reason: str = "", quotes: str = "double",
-            genre: str | None = None) -> dict:
+            genre: str | None = None, linebreak: bool = False, style: str | None = None) -> dict:
     before, after = lint.normalize(before), lint.normalize(after)
     after_marked = after
     after, n_marks = strip_markers(after)
@@ -282,8 +295,8 @@ def compare(before: str, after: str, lang: str = "auto", allow=None, reason: str
         shift = sum(len(tokens(x)) for x in mv) / n_tok
         rates["delete"] = round(max(0.0, rates["delete"] - shift), 4)
         rates["rewrite"] = round(max(0.0, rates["rewrite"] - shift), 4)
-    lb = lint.analyze(before, lang, quotes or False, 5, genre)
-    la = lint.analyze(after_marked, lang, quotes or False, 5, genre)
+    lb = lint.analyze(before, lang, quotes or False, 5, genre, style)
+    la = lint.analyze(after_marked, lang, quotes or False, 5, genre, style)
     ib, ia = invariants(before), invariants(after)
     md = mood_check(before, after)
 
@@ -357,16 +370,19 @@ def compare(before: str, after: str, lang: str = "auto", allow=None, reason: str
         warns.append(("s1", "S1 left: " + ", ".join(s1_left)))
     if rates["rewrite"] + rates["delete"] < 0.05 and s1_left:
         warns.append(("s1", "under-rewritten: under 5% edited while S1 remains"))
+    lw = linebreak_warn(after) if linebreak else None
+    if lw:
+        warns.append(lw)
 
     return apply_allow(_finish(fails, warns, notes, rates, lb, la, md), allow if isinstance(allow, dict) else set(allow or ()), reason)
 
 
 def compare_write(brief: str, after: str, lang: str = "auto", allow=None, reason: str = "", quotes: str = "double",
-                  genre: str | None = None) -> dict:
+                  genre: str | None = None, linebreak: bool = False, style: str | None = None) -> dict:
     brief, after = lint.normalize(brief), lint.normalize(after)
     after_marked = after
     after, n_marks = strip_markers(after)
-    la = lint.analyze(after_marked, lang, quotes or False, 5, genre)
+    la = lint.analyze(after_marked, lang, quotes or False, 5, genre, style)
     ib, ia = invariants(brief), invariants(after)
     fails, warns, notes = [], [], []
     new_nums = sorted(set(ia["numbers"]) - set(ib["numbers"]))
@@ -383,6 +399,9 @@ def compare_write(brief: str, after: str, lang: str = "auto", allow=None, reason
     left = [f["id"] for f in la["findings"] if f["sev"] in ("S1", "S2")]
     if left:
         warns.append(("s1", "S1/S2 in the draft: " + ", ".join(left)))
+    lw = linebreak_warn(after) if linebreak else None
+    if lw:
+        warns.append(lw)
     zero = {"rewrite": 0.0, "delete": 0.0, "overall": 0.0}
     return apply_allow(_finish(fails, warns, notes, zero, {"tally": {"S1": 0, "S2": 0, "S3": 0}}, la, None, mode="write"),
                        allow if isinstance(allow, dict) else set(allow or ()), reason)
@@ -466,6 +485,10 @@ def main(argv=None) -> int:
                     help="also lint text inside double quotes (default: direct quotes are skipped)")
     ap.add_argument("--genre", choices=sorted(lint.GENRE_LEVELS), default=None,
                     help="sns = social posts and YouTube descriptions, chat = messenger (passed to lint)")
+    ap.add_argument("--style", choices=["ste"], default=None,
+                    help="ste = reports and documents: ASD-STE100 sentence and paragraph limits (passed to lint)")
+    ap.add_argument("--no-linebreak", action="store_true",
+                    help="skip the one-sentence-per-line check (default: on)")
     ap.add_argument("--json", action="store_true")
     try:
         a = ap.parse_args(argv)
@@ -476,7 +499,8 @@ def main(argv=None) -> int:
             return 3
         fn = compare_write if a.mode == "write" else compare
         r = fn(lint.read_text(a.before), lint.read_text(a.after), a.lang, allow, a.reason.strip(),
-               quotes=None if a.include_quotes else "double", genre=a.genre)
+               quotes=None if a.include_quotes else "double", genre=a.genre,
+               linebreak=not a.no_linebreak, style=a.style)
     except SystemExit as e:
         return 3 if e.code not in (0, None) else 0
     except Exception as e:

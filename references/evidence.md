@@ -64,3 +64,5 @@
 - Freeburg 2026 https://arxiv.org/abs/2603.27006
 - Graphite "AI Tells" https://graphite.io/five-percent/research/ai-tells
 - OpenAI https://openai.com/index/expanding-on-sycophancy/
+- ASD-STE100 Simplified Technical English, Issue 9 (2025-01, 규칙 53개): 지시문 20단어·설명문 25단어 이하, 문단 6문장 이하·주제 하나, 한 문장에 지시 하나, 능동태, 명사 덩어리 3단어 이하, 낱말 하나에 뜻 하나, 복잡한 내용은 세로 목록. 공식 문서는 https://asd-ste100.org 에서 무료로 받는다. 요약: https://en.wikipedia.org/wiki/Simplified_Technical_English , https://www.tcworld.info/news/asd-ste100-issue-9-setting-a-standard-for-technical-documentation
+- v1.1 구조 패턴(KO-S1·S2, KO-E4)은 연구가 아니라 실제 사용 보고에서 나왔다: lint 0건인 주간 보고서를 받는 사람이 '전형적인 AI 말투'로 읽었다(2026-11). 지난 셀프테스트 결과물 46개에 돌려 S2 오탐 0건을 확인했다.

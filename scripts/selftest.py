@@ -507,6 +507,80 @@ def batch7_rules_and_gate():
 
 
 @case
+def linebreak_one_sentence_per_line():
+    import linebreak
+    t = ("첫 영상을 올리고 18일 만에 71명이 됐다. 다음 주에는 9명만 늘었다.\n"
+         "1. 쇼츠는 웃긴 장면을 앞에 둔다. 지금은 늦다.\n"
+         "버전 2.0은 8.5개월 걸렸다... 그래서 끝.\n"
+         "The U.S. team met Dr. Kim at 4 p.m. Then they left. Values were 7.3% and 3.9x.\n"
+         "그는 \"좋다. 정말 좋다.\"라고 했다. 끝났다.\n"
+         "# 제목. 이건 제목\n| 표. 칸 |\n```\na = 1. b = 2.\n```")
+    out = linebreak.break_lines(t).split("\n")
+    assert "첫 영상을 올리고 18일 만에 71명이 됐다." in out and "다음 주에는 9명만 늘었다." in out, out
+    assert "1. 쇼츠는 웃긴 장면을 앞에 둔다." in out and "   지금은 늦다." in out, out  # list indent kept
+    assert "버전 2.0은 8.5개월 걸렸다... 그래서 끝." in out, out                  # decimal and ellipsis
+    assert "The U.S. team met Dr. Kim at 4 p.m. Then they left." in out, out      # abbreviations
+    assert "그는 \"좋다. 정말 좋다.\"라고 했다." in out and "끝났다." in out, out    # quote kept whole
+    assert "# 제목. 이건 제목" in out and "| 표. 칸 |" in out and "a = 1. b = 2." in out, out
+    assert lint.analyze(linebreak.break_lines(t))["format"]["count"] == 0
+    assert lint.analyze(t)["format"]["count"] == 4
+    assert linebreak.break_lines("가다. 나다.", "markdown") == "가다.  \n나다."
+    assert linebreak.break_lines("가다. 나다.", "html") == "가다.<br>\n나다."
+
+
+@case
+def gate_linebreak_check():
+    multi = "18일 만에 구독자가 71명이 됐다. 다음 주에는 속도를 다시 본다."
+    g = gate.compare_write("18 71", multi, linebreak=True)
+    assert "linebreak" in wkeys(g), g
+    g = gate.compare_write("18 71", multi, linebreak=True, allow={"linebreak": "한 줄 입력칸"})
+    assert g["verdict"] == 0, g
+    assert gate.compare_write("18 71", multi)["verdict"] == 0  # API default stays off
+    with tempfile.TemporaryDirectory() as d:
+        b, a = os.path.join(d, "b.txt"), os.path.join(d, "a.txt")
+        open(b, "w", encoding="utf-8").write("18 71")
+        open(a, "w", encoding="utf-8").write(multi)
+        assert gate.main([b, a, "--mode", "write"]) == 1                    # CLI default on
+        assert gate.main([b, a, "--mode", "write", "--no-linebreak"]) == 0
+        open(a, "w", encoding="utf-8").write(multi.replace(". ", ".\n"))
+        assert gate.main([b, a, "--mode", "write"]) == 0
+
+
+@case
+def structural_ai_tells():
+    r = lambda s: {f["id"]: f["sev"] for f in lint.analyze(s)["findings"]}
+    assert r("출발은 빠르다. 이번 주는 구독이 덜 늘었다\n\n본문이다.").get("KO-S1") == "S2"
+    assert "KO-S1" not in r("18일이 됐다. 다음은 없다.")                      # one-line text is not a title
+    assert r("Fast start. Slower week.\n\nWe grew this week.").get("EN-S1") == "S2"
+    assert "EN-S1" not in r("I almost didn't post this. 🙏\n\nBody text goes here.")
+    assert "EN-S1" not in r("Billwick 4.2 ships November 12. Version 4.2 adds CSV.\n\nMore below.")
+    triplet = "주간 보고서\n성장: 18일 만에 구독자 71명이 됐다.\n비교: 빠른 채널과 같은 자리다.\n개선: 웃긴 장면을 앞으로 당긴다."
+    assert r(triplet).get("KO-S2") == "S2"
+    stacked = "보고서\n성장\n18일 만에 구독자 71명이 됐다.\n비교\n빠른 채널과 같은 자리다.\n개선\n웃긴 장면을 앞으로 당긴다."
+    assert r(stacked).get("KO-S2") == "S2"
+    assert "KO-S2" not in r("용량: 28L\n무게: 940g\n소재: 나일론")                  # spec values
+    assert "KO-S2" not in r("- 일시: 2026년 11월 18일(수) 오후 2시\n- 장소: 3층 회의실\n- 대상: 신입 사원\n- 강사: 김 팀장")
+    opts = ("Pick one:\n- Full refund: We refund $64.90 to your card.\n- Replacement: We ship a new bag today.\n"
+            "- Store credit: We add $70 to your account.")
+    assert r(opts).get("EN-S2") == "S3"                                             # bulleted options stay advisory
+    assert r("조회가 늘었다. 구독은 줄었다. 쇼츠는 빠르다. 롱폼은 느리다. 이유는 많다.").get("KO-E4") == "S3"
+    assert "KO-E4" not in r("00:00 오프닝\n01:10 첫 장소\n02:30 점심\n04:00 바다\n05:20 마무리")  # chapter lines
+
+
+@case
+def ste_style_limits():
+    long = ("이 문장은 일부러 길게 쓴 문장으로 스무 개가 넘는 어절을 넣어서 STE 규칙의 설명문 길이 상한을 넘기는지 "
+            "확인하려고 만든 시험 문장인데 실제 보고서에서는 이렇게 길게 쓰지 않고 나눠서 쓴다.")
+    assert "STE-1" in ids(lint.analyze(long, style="ste")) and "STE-1" not in ids(lint.analyze(long))
+    para = "\n".join(f"{i}번째 문장은 보통 길이로 쓴 설명 문장이다." for i in range(1, 8))
+    assert "STE-2" in ids(lint.analyze(para, style="ste"))
+    items = "\n".join(f"- {i}번 항목은 짧다." for i in range(1, 9))
+    assert "STE-2" not in ids(lint.analyze(items, style="ste"))                      # a list is not a paragraph
+    en = " ".join(["word"] * 27) + "."
+    assert "STE-1" in ids(lint.analyze("This sentence has " + en, lang="en", style="ste"))
+
+
+@case
 def docs_match_lint_levels():
     import re as _re
     root = os.path.dirname(HERE)

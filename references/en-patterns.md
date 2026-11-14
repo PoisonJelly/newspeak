@@ -4,6 +4,11 @@ Format: `ID [severity] name: condition → fix`. [auto] = lint.py catches it. [e
 S1 fix on first sight · S2 fix when clustered · S3 fix only when it stacks with other patterns.
 Sources: (W) Wikipedia "Signs of AI writing", 2026-11 revision · (S) stop-slop, MIT · (R) published research · (G) Graphite "AI Tells", 2026-09 · (P) Pangram/GPTZero vendor data, baselines not published.
 
+## S. Structural frames (v1.1: the page passed lint and still read as AI)
+
+- **EN-S1** [S2 auto] Two-sentence punchline title: a heading, or a standalone first line with body text below, made of two short sentences of five words or fewer with no numbers ("Fast start. Slower week."). → Make the title one plain statement of what the piece covers. Put the conclusion in the first paragraph.
+- **EN-S2** [S3 auto, S2 when it opens the text without bullets] Three or more labelled one-line sentences ("Growth: … / Benchmark: … / Fix: …"). Lines with values only ("Weight: 940 g") are not counted. → Drop the labels and write one connected paragraph. Actions go in a numbered list, one action per item. Option lists for a customer stay.
+
 ## Never touch
 
 Names, numbers, dates, units, direct quotations with a speaker, legal and medical wording (the hedge is the meaning there), standard technical terms, the writer's mood (must/should/may/might keep their strength), and structure that a format rule requires (bullet decks, STE short sentences, subtitles).
@@ -116,6 +121,7 @@ Names, numbers, dates, units, direct quotations with a speaker, legal and medica
 - **EN-L1** [S3 auto] Uniform sentence length, no long sentence (R, S). → Merge two short sentences or split a long one. Add no content.
 - **EN-L2** [S2 eye] Staccato fragments for drama: "Speed. Quality. Cost. Pick two. That's it." (S). → One sentence.
 - **EN-L4** [S3 auto, 6+ S2] Four or more sentences in a row start with "I" (cover letters after a rewrite; self-test). → Start one or two with the fact, the place or the other person.
+- **EN-L5** [S3 auto, 6+ in a row or 2+ places S2] Four or more very short sentences (6 words or fewer) in a row (v1.1). Chapter lines, labels and list items are not counted. → Join related neighbours with and/but/so or a relative clause. Add no content.
 - **EN-L3** [S3 auto, 4+ S2] Three or more paragraphs open with a very short sentence (5 words or fewer), often from turning a bullet brief into one paragraph per bullet (self-test). → Vary openings; merge the short opener into the next sentence or start with the fact.
 
 ## M. Adverbs

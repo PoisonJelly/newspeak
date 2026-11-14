@@ -1,6 +1,6 @@
 ---
 name: newspeak
-description: 한국어·영어 글에서 AI 말투(AI 문체, GPT체, AI slop)를 찾아 지우거나 처음부터 AI 티 없이 쓴다. Finds and removes AI writing tells in Korean and English text, or writes new text without them. im-not-ai(humanize-korean)의 한국어 규칙, stop-slop의 영어 규칙, 위키백과 'Signs of AI writing', 2023~2026 실증 연구를 합쳤다. "AI 티 빼줘", "AI 말투 고쳐줘", "윤문해줘", "humanize", "de-slop", "make this sound human", "newspeak"라고 하거나, 외부로 나가는 한국어·영어 글(메일, 공지, 보도자료, 자기소개서, 커버레터, 블로그, SNS, 설명란, 영어 자막 검수)을 쓰거나 다듬을 때 쓴다. 탐지(review)·윤문(rewrite)·작성(write) 세 모드와 검사 스크립트(lint.py, gate.py)가 있다. 코드·커밋 메시지에는 쓰지 않는다.
+description: 한국어·영어 글에서 AI 말투(AI 문체, GPT체, AI slop)를 찾아 지우거나 처음부터 AI 티 없이 쓴다. Finds and removes AI writing tells in Korean and English text, or writes new text without them. im-not-ai(humanize-korean)의 한국어 규칙, stop-slop의 영어 규칙, 위키백과 'Signs of AI writing', 2023~2026 실증 연구를 합쳤다. "AI 티 빼줘", "AI 말투 고쳐줘", "윤문해줘", "humanize", "de-slop", "make this sound human", "newspeak"라고 하거나, 외부로 나가는 한국어·영어 글(메일, 공지, 보도자료, 자기소개서, 커버레터, 블로그, SNS, 설명란, 영어 자막 검수)을 쓰거나 다듬을 때 쓴다. 탐지(review)·윤문(rewrite)·작성(write) 세 모드와 검사 스크립트(lint.py, gate.py, linebreak.py)가 있다. 결과 글은 한 줄에 한 문장으로 쓰고, 보고서·문서는 ASD-STE100 핵심 원칙을 따른다("보고서 다듬어줘"). 코드·커밋 메시지에는 쓰지 않는다.
 ---
 
 # newspeak
@@ -28,8 +28,8 @@ description: 한국어·영어 글에서 AI 말투(AI 문체, GPT체, AI slop)�
 | 모드 | 하는 일 | 끝나는 조건 |
 |---|---|---|
 | review | 탐지만 한다. 고칠 곳과 이유를 보고한다 | lint 결과 + 사람 눈 검토 목록 |
-| rewrite | 있는 글을 고친다. 탐지된 곳만 국소 수정한다 | gate PASS(해명한 경고는 `--allow`로 기록) |
-| write | 새 글을 쓴다. 쓰기 전에 규칙을 적용하고 쓴 뒤 lint·gate로 확인한다 | lint S1·S2 0건, gate `--mode write` PASS |
+| rewrite | 있는 글을 고친다. 탐지된 곳만 국소 수정한다 | gate PASS(줄바꿈 검사 포함, 해명한 경고는 `--allow`로 기록) |
+| write | 새 글을 쓴다. 쓰기 전에 규칙을 적용하고 쓴 뒤 lint·gate로 확인한다 | lint S1·S2 0건, gate `--mode write` PASS(줄바꿈 검사 포함) |
 
 모드를 말하지 않으면 다음과 같이 정한다.
 - 글을 주고 "고쳐줘·다듬어줘"라고 하면 rewrite.
@@ -59,6 +59,12 @@ description: 한국어·영어 글에서 AI 말투(AI 문체, GPT체, AI slop)�
    - 'AI 단어 목록'은 1~2년이면 바뀐다.
    - 대조 구문, 결말 공식, 연결어미 쉼표, 꼬리 분석, 리듬 균일 같은 구조 신호가 더 오래 남는다.
    - 금지어만 바꿔 끼우면 실패다.
+   - lint가 0건이어도 끝이 아니다. 제목, 맨 위 요약, 문장 리듬을 사람 눈으로 한 번 더 본다(4-1절 63~66번).
+9. **한 줄에 한 문장을 쓴다.** 결과 글에서 문장을 끝내는 마침표·물음표·느낌표 뒤에는 줄을 바꾼다.
+   - `scripts/linebreak.py`가 자동으로 바꾼다. 소수점(8.5), 목록 번호(1.), 말줄임표(..., …), 약어(Dr., U.S.), 직접 인용 안, 코드, 제목 줄, 표 칸은 건드리지 않는다.
+   - 문단은 빈 줄로 나눈다. 문단 안에서는 문장마다 줄만 바꾼다.
+   - 나갈 곳에 맞는 줄바꿈을 쓴다. 평문·메일·메신저는 줄바꿈, 렌더링되는 마크다운은 `--target markdown`(줄 끝 공백 두 칸), HTML은 `--target html`(`<br>`).
+   - 형식이 줄바꿈을 막는 곳만 예외다: 자막 한 줄, 표 칸, 제목, 한 줄 입력칸. gate에 `--allow linebreak=이유`로 적는다.
 
 ## 4. rewrite 작업 흐름
 
@@ -98,12 +104,15 @@ python "$HOME/.claude/skills/newspeak/scripts/lint.py" before.txt --skip-quotes 
 ### 3단계: 윤문
 - 문장 단위로 수술한다. 문단이 길면 한 문단씩 고친다.
 - 고친 문장마다 철칙 1, 2, 5와 아래 4-1절을 다시 확인한다.
+- 문장마다 줄을 바꾼다(철칙 9): `python "$HOME/.claude/skills/newspeak/scripts/linebreak.py" draft.txt after.txt`
 - 결과를 `after.txt`로 저장한다.
 
 ### 4단계: 게이트
 ```bash
 python "$HOME/.claude/skills/newspeak/scripts/gate.py" before.txt after.txt
+python "$HOME/.claude/skills/newspeak/scripts/gate.py" before.txt after.txt --style ste   # 보고서·문서(6-1절)
 ```
+- 명령줄 gate는 결과 글의 줄바꿈(철칙 9)을 기본으로 검사한다. 한 줄에 문장이 둘 이상이면 WARN 'linebreak'가 난다. `--no-linebreak`는 쓰지 않는다. 형식상 예외만 `--allow linebreak=이유`로 적는다.
 
 | 종료 코드 | 뜻 | 할 일 |
 |---|---|---|
@@ -140,6 +149,7 @@ python "$HOME/.claude/skills/newspeak/scripts/gate.py" before.txt after.txt
   - 'S1 left' (s1): 남은 S1을 마저 고친다. 형식 규칙 때문에 남긴 것이면 `--allow s1=이유`로 적는다.
   - 'a claim lost its attribution' (attribution): 출처 표시('Experts say', '~에 따르면', '전문가들은')를 걷어 내자 그 주장이 필자의 단정이 됐다. 4-1절 4번에 따라 고친다.
   - 'a shared role became a solo action' / 'a key role became a supporting one' (contribution): 사람의 역할 정도가 올라가거나 내려갔다. 4-1절 38번에 따라 원래 정도로 되돌린다.
+  - 'line(s) hold more than one sentence' (linebreak): 문장마다 줄을 바꾼다(`linebreak.py`). 자막 한 줄·표 칸·제목·한 줄 입력칸처럼 형식이 막는 곳만 `--allow linebreak=이유`.
   - 'certainty statements fell' (certainty): 'I am confident', '확신합니다'가 사라졌다. 철칙 2에 따라 확신과 그 안의 주장을 평이한 말로 되살린다.
 - gate는 큰따옴표 안(직접 인용)의 패턴을 등급과 잔존 검사에서 뺀다. 인용은 고치지 않는 대상이기 때문이다. 인용 안까지 보려면 `--include-quotes`를 쓴다.
 - NOTE는 경고가 아니다. 지운 문장에 있던 추측 표지 수 같은 참고 정보다. 보고에 옮긴다.
@@ -310,6 +320,11 @@ python "$HOME/.claude/skills/newspeak/scripts/gate.py" before.txt after.txt
 60. **기사의 '~라는 평가다'(평가 주체 없음)는 4번 규칙으로 다룬다.** 근거 수치가 받치지 않는 정책 칭찬이면 (c) 지움, 독자에게 쓸모 있는 판단이면 (b) 확인 표시.
 61. **S3의 '같은 문단에 다른 패턴' 조건은 고친 뒤의 글로 판단한다.** 다른 패턴을 고쳐 S3만 남았으면 그 S3는 둔다. 다만 59번처럼 4-1절 규칙이 있으면 그 규칙을 따른다.
 62. **홍보 문구 속에 필자의 감상·추천이 있으면 지우지 않고 평이한 1인칭 문장으로 바꾼다.** 'It's the kind of place that invites you to slow down' → 'It's a good place to slow down.' 'Whether you're X or Y, it has something for everyone'를 지울 때도 누구에게 권하는지는 남긴다: 'If you want a quiet weekend by the sea, it's worth the trip.' 맺음 문단을 지웠으면 필자의 최종 평가 문장이 하나 이상 남았는지 본다. 서술부를 지운 뒤 '콜론 + 명사 3개'만 남으면 동사가 있는 문장에 붙이거나 둘로 줄인다.
+63. **제목은 사실 하나로 쓴다.** 짧은 두 문장을 맞붙인 경구식 제목('출발은 빠르다. 이번 주는 구독이 덜 늘었다', 'Fast start. Slower week.')은 쓰지 않는다(KO-S1, EN-S1). 무엇을 언제 다루는지 쓴다: '11월 6일~12일 주간 보고서'. 결론은 본문 첫 문단에 문장으로 쓴다.
+64. **맨 위 요약을 라벨 세 줄로 쓰지 않는다.** '성장: … / 비교: … / 개선: …', 'Growth / Benchmark / Fix' 틀은 AI 요약의 전형이다(KO-S2, EN-S2). 사람이 설명하듯 이어지는 문단 하나로 쓴다. 할 일이면 번호 목록으로 쓰고 항목마다 동작 하나를 문장으로 쓴다. 값만 있는 사양 목록(용량: 28L)과 고객에게 고르게 하는 선택지 목록은 둔다.
+65. **아주 짧은 문장을 4개 넘게 잇지 않는다.** '~다.'로 끊어 쓴 같은 리듬은 lint 0건이어도 AI처럼 읽힌다(KO-E4, EN-L5). 관련된 이웃 문장을 연결어미(~고, ~는데, ~지만, ~어서)로 잇는다. STE 문장 상한(6-1절)은 상한이지 목표가 아니다. 상한 안에서 길이를 섞는다.
+66. **lint 0건과 'AI 말투 없음'은 다르다.** 보내기 전에 세 가지를 눈으로 본다. 제목이 사실인가(63번), 맨 위가 이어지는 문단인가(64번), 같은 길이·같은 종결이 줄줄이 이어지지 않는가(65번).
+67. **문장마다 줄을 바꾼 뒤에도 문단은 남긴다.** 한 줄에 한 문장(철칙 9)은 문단을 없애라는 뜻이 아니다. 주제가 바뀌면 빈 줄을 둔다. 한 문단은 6문장을 넘기지 않는다(STE).
 
 ## 5. 심각도와 등급
 
@@ -325,6 +340,28 @@ python "$HOME/.claude/skills/newspeak/scripts/gate.py" before.txt after.txt
   - B: S1 0, S2 4 이하, rewrite 30% 미만
   - C: 그 밖. 남은 경고를 고치거나 이유를 적는다
   - D: REJECT. 되돌린다
+
+## 6-1. 보고서·문서 형식: ASD-STE100 핵심 원칙
+
+보고서, 업무 문서, 안내문을 쓰거나 고칠 때 따른다. ASD-STE100(Simplified Technical English, Issue 9, 2025-01, 규칙 53개)은 항공 정비 문서에서 시작한 국제 표준으로, 비원어민과 비전문가가 한 번에 정확히 읽게 하려고 만든 작성 규칙이다. 아래는 그 핵심 생각을 한국어·영어 보고서에 맞게 옮긴 것이다. lint `--style ste`와 gate `--style ste`가 1·3번을 센다(STE-1, STE-2).
+
+1. **한 문장에 정보 하나.** 지시문은 한 문장에 동작 하나다. 조건이 있으면 동작 앞에 쓴다: '쇼츠를 올릴 때는 웃긴 장면을 첫 2~3초에 둔다.'
+2. **문장 길이 상한.** 영어는 지시문 20단어, 설명문 25단어(STE 원문 기준)다. 한국어는 공식 기준이 없다. 어절 하나가 영어 단어보다 정보가 많아 0.8배를 쓴다: 지시문·목록 16어절, 설명문 20어절. 상한이지 목표가 아니다(4-1절 65번).
+3. **문단 하나에 주제 하나, 6문장 이하.** 첫 문장에 그 문단의 핵심(결론)을 쓴다. 근거와 수치는 그 뒤에 쓴다.
+4. **낱말 하나에 뜻 하나, 뜻 하나에 낱말 하나.** 같은 대상을 문서 안에서 다른 말로 바꿔 부르지 않는다('보통 채널'을 '중간 채널', '중앙값'과 섞지 않는다). 낯선 용어는 처음 나올 때 풀어 쓴다.
+5. **명사 덩어리는 3개까지.** '채널 구독 증가 속도 비교 그래프'처럼 명사를 4개 넘게 잇지 않는다. 조사와 동사로 푼다: '구독이 늘어나는 속도를 비교한 그래프'.
+6. **능동태, 단순한 시제.** 누가 무엇을 하는지 쓴다. 영어는 행위자를 모를 때만 수동태를 쓴다(STE 규칙).
+7. **복잡한 내용은 세로 목록으로.** 항목이 3개 넘거나 순서가 있으면 번호 목록으로 쓴다. 목록 항목도 문장이면 문장 규칙을 따른다.
+8. **경고·주의는 해당 지시 앞에.** 하면 안 되는 일이나 위험은 그 지시보다 먼저 쓴다.
+
+보고서 뼈대(비전문가가 읽는 보고서):
+- 제목: 사실 하나(무엇, 기간). 경구식 제목 금지(63번).
+- 첫 문단: 사람이 설명하듯 이어지는 요약 2~4문장. 라벨 요약 금지(64번).
+- 할 일: 번호 목록, 항목마다 동작 한 문장 + 이유 한 문장.
+- 본문: 질문형 소제목, 문단마다 첫 문장에 답, 그래프·표는 비전문가 말로('나간 사람 10명 중 6명이 첫 30초 안에').
+- 모든 문장은 한 줄에 하나(철칙 9).
+
+STE와 AI 말투 규칙이 부딪히는 곳: STE의 '짧은 문장'을 이유로 문장을 잘게 끊으면 AI 리듬이 된다. STE는 상한을 정할 뿐이다. 관련된 문장은 STE도 허용하는 연결어로 잇는다(STE: 'use connecting words').
 
 ## 6. write 모드
 
@@ -423,7 +460,8 @@ stop-slop과 humanize-korean의 규칙 가운데 연구와 맞지 않는 것은 
 | `references/recipes.md` | 한국어·영어 고치기 예시(전/후) |
 | `references/evidence.md` | 연구 수치, 통념과 실제, 모델별 차이, 출처 |
 | `references/LICENSES.md` | 가져온 자료의 MIT 고지와 변경 내용 |
-| `scripts/lint.py` | 탐지기. 종료 코드 0: S1 없음 / 1: S1 있음 / 3: 오류 |
-| `scripts/gate.py` | 전후 비교. 종료 코드 0 / 1 / 2 / 3 |
+| `scripts/lint.py` | 탐지기. 종료 코드 0: S1 없음 / 1: S1 있음 / 3: 오류. `--style ste`로 STE 검사, 출력 끝 [FMT]는 줄바꿈 위반 |
+| `scripts/gate.py` | 전후 비교. 종료 코드 0 / 1 / 2 / 3. 명령줄에서는 줄바꿈(철칙 9)도 검사 |
+| `scripts/linebreak.py` | 문장마다 줄을 바꾼다. `--target text|markdown|html` |
 | `scripts/selftest.py` | 스크립트 단위 테스트 |
 | `tests/selftest-log.md` | 스킬 셀프테스트 기록 |

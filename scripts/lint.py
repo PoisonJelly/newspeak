@@ -490,6 +490,236 @@ def split_sentences(text: str, lang: str):
     return sents
 
 
+# ---------- format rule: one sentence per line ----------
+# A sentence-ending . ! ? that still has text after it on the same line breaks the rule.
+_END_RE = re.compile(r"(?<![.…])[.!?](?![.!?…])(?=[ \t]+\S)")
+_ABBR_EN = re.compile(r"(?:^|[^A-Za-z])(?:e\.g|i\.e|etc|vs|cf|al|approx|Mr|Mrs|Ms|Dr|Prof|St|No|Fig|Inc|Ltd|Co|Jr|Sr|a\.m|p\.m|U\.S|U\.K)$", re.I)
+
+
+def inline_sentence_ends(text: str):
+    """(line index, column) of every sentence-ending . ! ? followed by more text on the same line.
+
+    Skips code, URLs, double-quoted spans, headings, table rows, numbered-list markers ("1."),
+    decimals ("8.5"), ellipses ("...", "…"), initials ("J.") and common English abbreviations."""
+    raw = normalize(text)
+    masked = mask(raw, "double")
+    raw_lines = raw.split("\n")
+    out = []
+    for li, line in enumerate(masked.split("\n")):
+        if not line.strip() or line.lstrip().startswith(("#", "|")):
+            continue
+        for m in _END_RE.finditer(line):
+            col = m.start()
+            before = line[:col]
+            prev = before[-1:]
+            if not prev or prev.isspace():
+                continue
+            if re.fullmatch(r"\s*(?:[-*•>]\s*)?\d{1,3}", before):
+                continue  # numbered-list marker
+            if not (HANGUL.match(prev) or prev.isalnum() or prev in ")]\"”’'%?!»」』"):
+                continue
+            if prev.isascii() and prev.isalpha():
+                if prev.isupper() and (len(before) < 2 or not before[-2].isalpha()):
+                    continue  # initial
+                if _ABBR_EN.search(before):
+                    continue
+                nxt = raw_lines[li][col + 1:].lstrip()  # raw text: the next sentence may start with `code`
+                if not re.match(r"[\"“‘(\[`*]?[A-Z0-9가-힣`]", nxt):
+                    continue
+            out.append((li, col))
+    return out
+
+
+def format_check(doc: "Doc", max_items: int) -> dict:
+    hits = inline_sentence_ends(doc.raw)
+    lines = sorted({li for li, _ in hits})
+    return {"id": "FMT-LB", "name": "한 줄에 문장 2개 이상 / more than one sentence on a line", "count": len(lines),
+            "hint": "문장을 끝내는 마침표·물음표·느낌표 뒤에서 줄을 바꾼다(scripts/linebreak.py). "
+                    "Break the line after each sentence-ending period.",
+            "items": [{"line": li + 1, "match": "", "text": snippet(doc.lines[li])} for li in lines[:max_items]]}
+
+
+# ---------- ASD-STE100 report style (opt-in: --style ste) ----------
+# Issue 9 (2025): procedural sentences <= 20 words, descriptive <= 25, paragraphs <= 6 sentences.
+# Korean has no official STE; a Korean eojeol carries more than an English word, so 0.8x: 16 / 20 eojeol.
+STE_LIMITS = {"en": (20, 25), "ko": (16, 20)}
+_LIST_MARK = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s+")
+
+
+def ste_rules(doc: "Doc", results: dict, counts: dict, max_items: int):
+    long_s, ex = 0, []
+    para_over, pex = 0, []
+    for lang, body in (("ko", doc.ko_text), ("en", doc.en_text)):
+        proc_max, desc_max = STE_LIMITS[lang]
+        for block in re.split(r"\n\s*\n", body):
+            lines = [l for l in block.split("\n") if l.strip()]
+            if not lines:
+                continue
+            listy = all(_LIST_MARK.match(l) for l in lines)
+            n_sent = 0
+            for line in lines:
+                if line.lstrip().startswith(("#", "|")):
+                    continue
+                is_item = bool(_LIST_MARK.match(line))
+                for s in split_sentences(line, lang):
+                    n_sent += 1
+                    words = len([w for w in s.split() if re.search(r"\w", w)])
+                    cap = proc_max if is_item else desc_max
+                    if words > cap:
+                        long_s += 1
+                        if len(ex) < max_items:
+                            ex.append({"line": 0, "match": f"{words}/{cap}", "text": snippet(s)})
+            if not listy and n_sent > 6:
+                para_over += 1
+                if len(pex) < max_items:
+                    pex.append({"line": 0, "match": f"{n_sent}문장", "text": snippet(block.replace(chr(10), " "))})
+    counts["STE-1"], counts["STE-2"] = long_s, para_over
+    if long_s:
+        results["STE-1"] = {"id": "STE-1", "sev": "S2", "name": "STE 문장 길이 초과 / sentence over the STE limit", "count": long_s,
+                            "hint": "한 문장에 정보 하나. 설명문 20어절(영어 25단어), 목록·지시문 16어절(영어 20단어) 이하로 나눈다. "
+                                    "나눈 뒤 짧은 문장만 이어지지 않게 관련 문장은 연결어미로 잇는다.",
+                            "items": ex}
+    if para_over:
+        results["STE-2"] = {"id": "STE-2", "sev": "S2", "name": "STE 문단 6문장 초과 / paragraph over 6 sentences", "count": para_over,
+                            "hint": "문단 하나에 주제 하나, 6문장 이하. 첫 문장에 핵심을 쓴다. 항목이 3개 넘으면 세로 목록으로 바꾼다.",
+                            "items": pex}
+
+
+# ---------- structural AI tells (2026-11 user report: lint passed, the page still read as AI) ----------
+_LABEL_COLON = re.compile(r"^\s*(?:[-*•]\s*)?(?:\*\*)?([가-힣]{1,6}|[A-Za-z]+(?: [A-Za-z]+)?)(?:\*\*)?\s*[:：]\s*(?:\*\*)?(\S.*)$")
+_LABEL_ONLY = re.compile(r"^\s*(?:\*\*)?([가-힣]{1,4}|[A-Za-z]+(?: [A-Za-z]+)?)(?:\*\*)?\s*$")
+
+
+_SENT_END = re.compile(r"(?:[.!?]|[가-힣](?:다|요|죠|까|네))[\"”’')\]]*$")
+
+
+def _is_sentence(s: str) -> bool:
+    """A real sentence: ends like one (. ! ? or a Korean predicate ending), not a data field like '2026년 11월 18일'."""
+    s = s.strip().rstrip("*").strip()
+    return len(s) >= 8 and bool(_SENT_END.search(s))
+
+
+def structure_rules(doc: "Doc", results: dict, counts: dict, max_items: int):
+    lines = doc.lines
+    nonempty = [i for i, l in enumerate(lines) if l.strip()]
+    first = set(nonempty[:12])
+    # KO-S1 / EN-S1: a title made of two short punchy sentences
+    heads = nonempty[:3] + [i for i in nonempty if lines[i].lstrip().startswith("#")]
+    seen, aph = set(), {"ko": [], "en": []}
+    for i in heads:
+        if i in seen:
+            continue
+        seen.add(i)
+        line = re.sub(r"^\s*#{1,6}\s*|\*\*", "", lines[i]).strip()
+        parts = [p for p in re.split(r"(?<=[.!?])\s+", line) if p.strip()]
+        if len(parts) != 2 or not parts[0].endswith((".", "!", "?")):
+            continue
+        # title-like: a heading, or a standalone line (blank line after it) with body text below
+        has_body = any(j > i + 1 for j in nonempty)
+        title_like = lines[i].lstrip().startswith("#") or (has_body and i + 1 < len(lines) and not lines[i + 1].strip())
+        if not title_like:
+            continue
+        if HANGUL.search(line):
+            ok = all(2 <= len(p.split()) <= 8 and re.search(r"다[.!?]?$", p.strip()) for p in parts)
+            if ok and len(HANGUL.findall(line)) <= 40:
+                aph["ko"].append({"line": i + 1, "match": "", "text": snippet(lines[i])})
+        elif not re.match(r"(?i)(hi|hello|dear|thanks|thank you)\b", line) and not re.search(r"\d", line):
+            if all(1 <= len(p.split()) <= 5 and EN_WORD.search(p) for p in parts):
+                aph["en"].append({"line": i + 1, "match": "", "text": snippet(lines[i])})
+    for rid, lang in (("KO-S1", "ko"), ("EN-S1", "en")):
+        counts[rid] = len(aph[lang])
+        if aph[lang]:
+            results[rid] = {"id": rid, "sev": "S2", "count": len(aph[lang]), "items": aph[lang][:max_items],
+                            "name": "경구식 두 문장 제목" if lang == "ko" else "two-sentence punchline title",
+                            "hint": "제목은 사실 하나로 쓴다(무엇을, 언제). 결론은 본문 첫 문단에 문장으로 풀어 쓴다."
+                                    if lang == "ko" else "Make the title one plain statement of what the piece covers. Put the conclusion in the first paragraph."}
+    # KO-S2 / EN-S2: three or more labelled one-liners ("성장: … / 비교: … / 개선: …")
+    runs = {"ko": [], "en": []}
+
+    def flush(run):
+        if len(run) >= 3:
+            lang = "ko" if HANGUL.search("".join(lab for _, lab in run)) else "en"
+            runs[lang].append(run)
+
+    run = []
+    for i, line in enumerate(lines):
+        m = _LABEL_COLON.match(line)
+        if m and _is_sentence(m.group(2)):
+            run.append((i, m.group(1)))
+            continue
+        if not line.strip() and run:
+            continue
+        flush(run)
+        run = []
+    flush(run)
+    k = 0
+    while k + 1 < len(nonempty):  # label on its own line, then one sentence line, three times in a row
+        pairs, j = [], k
+        while j + 1 < len(nonempty):
+            a, b = nonempty[j], nonempty[j + 1]
+            ma = _LABEL_ONLY.match(lines[a])
+            if ma and not _LABEL_ONLY.match(lines[b]) and _is_sentence(lines[b]):
+                pairs.append((a, ma.group(1)))
+                j += 2
+            else:
+                break
+        if len(pairs) >= 3:
+            flush(pairs)
+            k = j
+        else:
+            k += 1
+    for rid, lang in (("KO-S2", "ko"), ("EN-S2", "en")):
+        found = runs[lang]
+        counts[rid] = len(found)
+        if found:
+            # summary at the top without bullets = the AI overview; bulleted option/spec lists stay advisory
+            top = any(r[0][0] in first and not re.match(r"^\s*[-*•]\s", lines[r[0][0]]) for r in found)
+            results[rid] = {"id": rid, "sev": "S2" if top else "S3", "count": len(found),
+                            "items": [{"line": r[0][0] + 1, "match": " / ".join(lab for _, lab in r[:4]), "text": snippet(lines[r[0][0]])}
+                                      for r in found[:max_items]],
+                            "name": "라벨 3개 요약 틀(성장/비교/개선)" if lang == "ko" else "labelled summary triplet (Growth / Benchmark / Fix)",
+                            "hint": ("라벨을 떼고 이어지는 문단 하나로 쓴다. 할 일이면 번호 목록으로 쓰되 항목마다 동작 하나를 문장으로 쓴다. "
+                                     "용량·무게 같은 사양 목록(값만 있는 줄)은 둔다.")
+                                    if lang == "ko" else
+                                    "Drop the labels and write one connected paragraph. If they are actions, use a numbered list with one action per item. Spec lists (Capacity, Weight) are fine."}
+    # KO-E4 / EN-L5: four or more very short sentences in a row (chopped rhythm)
+    for rid, lang, body, short in (("KO-E4", "ko", doc.ko_text, 15), ("EN-L5", "en", doc.en_text, 6)):
+        best_runs, ex = [], []
+        for block in re.split(r"\n\s*\n", body):
+            run_n, run_ex = 0, ""
+            for line in block.split("\n"):
+                if not line.strip() or line.lstrip().startswith(("#", "|")) or _LIST_MARK.match(line):
+                    if run_n >= 4:
+                        best_runs.append(run_n)
+                        ex.append(run_ex)
+                    run_n = 0
+                    continue
+                for s in split_sentences(line, lang):
+                    if not _SENT_END.search(s.strip()):
+                        continue  # chapter lines, labels, fragments
+                    size = len(HANGUL.findall(s)) if lang == "ko" else len(EN_WORD.findall(s))
+                    if size <= short:
+                        run_n += 1
+                        run_ex = run_ex if run_n > 1 else s
+                    else:
+                        if run_n >= 4:
+                            best_runs.append(run_n)
+                            ex.append(run_ex)
+                        run_n = 0
+            if run_n >= 4:
+                best_runs.append(run_n)
+                ex.append(run_ex)
+        counts[rid] = len(best_runs)
+        if best_runs:
+            sev = "S2" if (max(best_runs) >= 6 or len(best_runs) >= 2) else "S3"
+            results[rid] = {"id": rid, "sev": sev, "count": len(best_runs), "esc": sev == "S2",
+                            "items": [{"line": 0, "match": f"{n}연속" if lang == "ko" else f"{n} in a row", "text": snippet(t)}
+                                      for n, t in list(zip(best_runs, ex))[:max_items]],
+                            "name": "아주 짧은 문장 4개+ 연속(끊어 쓴 리듬)" if lang == "ko" else "four or more very short sentences in a row",
+                            "hint": "관련된 이웃 문장을 연결어미(~고, ~는데, ~지만, ~어서)로 잇는다. 내용은 더하지 않는다."
+                                    if lang == "ko" else "Join related neighbours with and/but/so or a relative clause. Add no content."}
+
+
 def ko_ending(sent: str) -> str | None:
     body = re.sub(r"[^가-힣]+$", "", sent)
     if not body or not re.search(r"[.!?]$", sent.strip()):
@@ -717,13 +947,17 @@ def _with_genre(rules, genre):
     return [(r[0], r[1], r[2], r[3], over.get(r[0], r[4]), r[5], r[6], r[7]) for r in rules]
 
 
-def analyze(text: str, lang: str = "auto", skip_quotes: bool = False, max_items: int = 5, genre: str | None = None) -> dict:
+def analyze(text: str, lang: str = "auto", skip_quotes: bool = False, max_items: int = 5, genre: str | None = None,
+            style: str | None = None) -> dict:
     doc = Doc(text, lang, skip_quotes)
     results, counts = {}, {}
     run_regex_rules(doc, _with_genre(KO_RULES, genre), results, counts, max_items)
     run_regex_rules(doc, _with_genre(EN_RULES, genre), results, counts, max_items)
     run_regex_rules(doc, _with_genre(ANY_RULES, genre), results, counts, max_items)
     run_function_rules(doc, results, counts, max_items)
+    structure_rules(doc, results, counts, max_items)
+    if style == "ste":
+        ste_rules(doc, results, counts, max_items)
     findings = sorted(results.values(), key=lambda r: (SEV_RANK[r["sev"]], r["id"]))
     tally = {s: sum(1 for f in findings if f["sev"] == s) for s in ("S1", "S2", "S3")}
     return {
@@ -731,6 +965,7 @@ def analyze(text: str, lang: str = "auto", skip_quotes: bool = False, max_items:
         "tally": tally,
         "findings": findings,
         "counts": counts,
+        "format": format_check(doc, max_items),
     }
 
 
@@ -749,6 +984,11 @@ def format_report(res: dict) -> str:
         hidden = f["count"] - len(f["items"])
         if f["items"] and hidden > 0 and f["id"] != "EN-B1":
             out.append(f"    (+{hidden} more; run with --max-items {f['count']})")
+    fm = res.get("format") or {}
+    if fm.get("count"):
+        out.append(f"[FMT] {fm['id']} {fm['name']} x{fm['count']} lines: {fm['hint']}")
+        for it in fm["items"]:
+            out.append(f"    L{it['line']}: {it['text']}")
     return "\n".join(out)
 
 
@@ -770,9 +1010,11 @@ def main(argv=None) -> int:
     ap.add_argument("--max-items", type=int, default=8)
     ap.add_argument("--genre", choices=sorted(GENRE_LEVELS), default=None,
                     help="sns = social posts and YouTube descriptions, chat = messenger; relaxes emoji/CTA counts")
+    ap.add_argument("--style", choices=["ste"], default=None,
+                    help="ste = reports and documents: ASD-STE100 sentence and paragraph limits (STE-1, STE-2)")
     try:
         a = ap.parse_args(argv)
-        res = analyze(read_text(a.file), a.lang, a.skip_quotes, max(0, a.max_items), a.genre)
+        res = analyze(read_text(a.file), a.lang, a.skip_quotes, max(0, a.max_items), a.genre, a.style)
     except SystemExit as e:
         return 3 if e.code not in (0, None) else 0
     except Exception as e:  # report, never crash with a traceback
