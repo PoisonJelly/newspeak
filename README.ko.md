@@ -103,6 +103,7 @@ python scripts/lint.py report.txt --style ste   # 보고서: ASD-STE100 상한
 
 ## 바뀐 점
 
+- 1.1.1: 이어지는 줄을 들여쓴 번호 목록을 STE-2가 문단 하나로 세던 문제를 고쳤습니다.
 - 1.1.0: 한 줄에 한 문장(`linebreak.py`, gate `linebreak` 검사), ASD-STE100 보고서 형식(`--style ste`, SKILL.md 6-1절), 구조 패턴 검사 추가(경구식 두 문장 제목, 라벨 세 줄 요약, 아주 짧은 문장 연속: KO-S1·S2·E4, EN-S1·S2·L5).
   단위 시험 44개.
 - 1.0.0: 첫 공개.

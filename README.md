@@ -109,6 +109,7 @@ Known limits:
 
 ## Changes
 
+- 1.1.1: STE-2 no longer counts a numbered list with indented continuation lines as one paragraph.
 - 1.1.0: one sentence per line (`linebreak.py`, gate check `linebreak`); ASD-STE100 report format (`--style ste`, SKILL.md 6-1); structural checks for a two-sentence punchline title, a labelled three-line summary and runs of very short sentences (KO-S1, KO-S2, KO-E4, EN-S1, EN-S2, EN-L5).
   44 unit tests.
 - 1.0.0: first release.

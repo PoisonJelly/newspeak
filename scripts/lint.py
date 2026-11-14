@@ -555,7 +555,13 @@ def ste_rules(doc: "Doc", results: dict, counts: dict, max_items: int):
             lines = [l for l in block.split("\n") if l.strip()]
             if not lines:
                 continue
-            listy = all(_LIST_MARK.match(l) for l in lines)
+            # a list (items plus indented continuation lines, maybe under a short heading) is not a paragraph
+            body_lines = [l for l in lines if not l.lstrip().startswith(("#", "|"))]
+            if body_lines and not _LIST_MARK.match(body_lines[0]) and not _SENT_END.search(body_lines[0].strip()) \
+                    and len(body_lines[0].strip()) <= 30:
+                body_lines = body_lines[1:]
+            listy = bool(body_lines) and any(_LIST_MARK.match(l) for l in body_lines) and \
+                all(_LIST_MARK.match(l) or l[:1] in (" ", "\t") for l in body_lines)
             n_sent = 0
             for line in lines:
                 if line.lstrip().startswith(("#", "|")):

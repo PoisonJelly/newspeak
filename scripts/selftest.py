@@ -576,6 +576,8 @@ def ste_style_limits():
     assert "STE-2" in ids(lint.analyze(para, style="ste"))
     items = "\n".join(f"- {i}번 항목은 짧다." for i in range(1, 9))
     assert "STE-2" not in ids(lint.analyze(items, style="ste"))                      # a list is not a paragraph
+    todo = "이번 주 할 일\n" + "\n".join(f"{i}. {i}번 일을 한다.\n   이유는 {i}번에 적었다." for i in range(1, 5))
+    assert "STE-2" not in ids(lint.analyze(todo, style="ste"))                       # items with continuation lines
     en = " ".join(["word"] * 27) + "."
     assert "STE-1" in ids(lint.analyze("This sentence has " + en, lang="en", style="ste"))
 
